@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Anchor — Nucleus control plane</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #c9d1d9;
+    --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --red: #f85149;
+    --amber: #d29922; --gray: #6e7681;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  header {
+    display: flex; align-items: center; gap: 16px;
+    padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--panel);
+  }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  .pill {
+    font-size: 12px; padding: 2px 10px; border-radius: 999px;
+    border: 1px solid var(--border); color: var(--muted);
+  }
+  .pill.live { color: var(--green); border-color: var(--green); }
+  .pill.dead { color: var(--red); border-color: var(--red); }
+  button {
+    background: #21262d; color: var(--text); border: 1px solid var(--border);
+    padding: 6px 12px; border-radius: 6px; cursor: pointer; font: inherit;
+  }
+  button:hover { border-color: var(--accent); }
+  button.primary { background: var(--accent); color: #0d1117; border-color: var(--accent); font-weight: 600; }
+  main { padding: 20px; max-width: 1100px; margin: 0 auto; }
+  .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .tabs button.active { border-color: var(--accent); color: var(--accent); }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
+  tr.svc { cursor: pointer; }
+  tr.svc:hover td { background: #1c2128; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .healthy { background: var(--green); } .unhealthy { background: var(--red); }
+  .starting { background: var(--amber); } .none { background: var(--gray); }
+  .tag { font-size: 11px; padding: 1px 7px; border-radius: 4px; background: #21262d; border: 1px solid var(--border); color: var(--muted); }
+  .muted { color: var(--muted); }
+  .gate { max-width: 380px; margin: 80px auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 28px; }
+  .gate h2 { margin-top: 0; }
+  .gate input { width: 100%; padding: 9px; margin: 6px 0 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font: inherit; }
+  .err { color: var(--red); min-height: 18px; font-size: 13px; }
+  .hidden { display: none; }
+  #detail { margin-top: 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
+  #detail h3 { margin: 0 0 10px; }
+  pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow: auto; max-height: 360px; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  details summary { cursor: pointer; color: var(--accent); margin: 10px 0; }
+  .grouphdr td { background: #10151c; color: var(--accent); font-weight: 600; text-transform: uppercase; font-size: 11px; }
+</style>
+</head>
+<body>
+
+<!-- Auth gate (setup or login) -->
+<div id="gate" class="gate hidden">
+  <h2 id="gate-title">⚓ Anchor</h2>
+  <p id="gate-sub" class="muted"></p>
+  <input id="pw" type="password" placeholder="Password" autocomplete="off" />
+  <input id="pw2" type="password" placeholder="Confirm password" autocomplete="off" class="hidden" />
+  <div id="gate-err" class="err"></div>
+  <button id="gate-btn" class="primary" style="width:100%">Continue</button>
+</div>
+
+<!-- App -->
+<div id="app" class="hidden">
+  <header>
+    <h1>⚓ Anchor</h1>
+    <span class="muted">Nucleus infrastructure control plane</span>
+    <span class="spacer"></span>
+    <span id="conn" class="pill">connecting…</span>
+    <button id="logout">Log out</button>
+  </header>
+  <main>
+    <div class="tabs">
+      <button id="tab-services" class="active">Services</button>
+      <button id="tab-audit">Audit log</button>
+    </div>
+
+    <div id="services-view">
+      <div class="row">
+        <strong id="svc-count">0 services</strong>
+        <span class="muted">— read-only (lifecycle actions arrive in Phase 3)</span>
+        <span class="spacer"></span>
+        <button id="refresh">Refresh</button>
+      </div>
+      <table>
+        <thead><tr><th>Name</th><th>App</th><th>Role</th><th>State</th><th>Health</th><th>Status</th></tr></thead>
+        <tbody id="svc-body"></tbody>
+      </table>
+      <div id="detail" class="hidden"></div>
+    </div>
+
+    <div id="audit-view" class="hidden">
+      <div class="row"><strong>Audit log</strong><span class="muted">— append-only, newest first</span><span class="spacer"></span><button id="refresh-audit">Refresh</button></div>
+      <table>
+        <thead><tr><th>Time (UTC)</th><th>Event</th><th>Target</th><th>IP</th></tr></thead>
+        <tbody id="audit-body"></tbody>
+      </table>
+    </div>
+  </main>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

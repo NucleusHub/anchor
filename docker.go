@@ -194,7 +194,10 @@ func (d *Docker) Logs(ctx context.Context, id string, tail int) (string, error) 
 // Events calls onEvent for each container event for managed containers, until
 // ctx is cancelled or the stream ends.
 func (d *Docker) Events(ctx context.Context, onEvent func()) error {
-	filter := `{"type":["container"],"label":["nucleus.managed=true"]}`
+	// Only meaningful lifecycle/health transitions — NOT exec_create/exec_start/
+	// exec_die, which Docker fires on every health check (~every few seconds) and
+	// would otherwise flood the UI with refreshes.
+	filter := `{"type":["container"],"label":["nucleus.managed=true"],"event":["create","start","stop","die","kill","restart","destroy","health_status","oom","pause","unpause","rename","update"]}`
 	resp, err := d.get(ctx, d.stream, "/events?filters="+url.QueryEscape(filter))
 	if err != nil {
 		return err

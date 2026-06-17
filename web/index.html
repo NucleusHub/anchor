@@ -130,6 +130,13 @@
   .err { color: var(--red); min-height: 18px; font-size: 13px; }
   .hidden { display: none; }
   .grouphdr td { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: .5px; }
+  .search { padding: 7px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font: inherit; min-width: 220px; }
+  .search:focus { outline: none; border-color: var(--accent); }
+  button.mini { padding: 4px 10px; font-size: 12px; border-radius: 8px; margin-left: 5px; }
+  td.actcell { white-space: nowrap; text-align: right; }
+  tr.svc.open td { background: var(--surface-2); }
+  tr.exp td { background: color-mix(in srgb, var(--accent) 6%, transparent); padding: 16px 16px 18px; }
+  .caret { display: inline-block; width: 1em; color: var(--muted); }
 
   /* Gate */
   .gate { max-width: 400px; margin: 12vh auto; padding: 32px; }
@@ -193,17 +200,17 @@
     <div id="services-view">
       <div class="row">
         <strong id="svc-count">0 services</strong>
-        <span class="muted">— read-only + lifecycle</span>
         <span class="spacer"></span>
+        <input id="svc-search" class="search" placeholder="Search services…" autocomplete="off" />
         <button id="refresh">Refresh</button>
       </div>
+      <div id="svc-msg" class="muted" style="min-height:18px"></div>
       <div class="glass card">
         <table>
-          <thead><tr><th>Name</th><th>App</th><th>Role</th><th>State</th><th>Health</th><th>Status</th></tr></thead>
+          <thead><tr><th>Name</th><th>App</th><th>Role</th><th>State</th><th>Health</th><th style="text-align:right">Actions</th></tr></thead>
           <tbody id="svc-body"></tbody>
         </table>
       </div>
-      <div id="detail" class="glass hidden"></div>
     </div>
 
     <div id="audit-view" class="hidden">

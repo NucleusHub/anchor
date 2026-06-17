@@ -12,15 +12,25 @@ async function api(path, opts = {}) {
   return { ok: res.ok, status: res.status, body };
 }
 
-// ── Theme (dark/light, matches Nucleus) ─────────────────────────────────────
-function currentDark() { return document.documentElement.classList.contains('dark'); }
-function setTheme(dark) {
+// ── Theme (light/system/dark, matches Nucleus) ──────────────────────────────
+// Uses the shared `nucleus-theme` cookie so Anchor's theme tracks the hub on the
+// same host (cookies are not port-scoped).
+const THEME_KEY = 'nucleus-theme';
+function getCookie(n) { const m = document.cookie.match(new RegExp('(?:^|; )' + n + '=([^;]*)')); return m ? decodeURIComponent(m[1]) : null; }
+function setCookie(n, v) { document.cookie = `${n}=${encodeURIComponent(v)}; path=/; max-age=31536000; SameSite=Lax`; }
+let themePref = getCookie(THEME_KEY) || 'system';
+function applyTheme() {
+  const dark = themePref === 'dark' || (themePref === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
   document.documentElement.classList.toggle('dark', dark);
-  try { localStorage.setItem('anchor-theme', dark ? 'dark' : 'light'); } catch (e) {}
-  $('theme').textContent = dark ? '☀' : '🌙';
+  document.querySelectorAll('#theme button').forEach((b) => b.classList.toggle('active', b.dataset.theme === themePref));
 }
-$('theme').textContent = currentDark() ? '☀' : '🌙';
-$('theme').addEventListener('click', () => setTheme(!currentDark()));
+function setTheme(v) { themePref = v; setCookie(THEME_KEY, v); applyTheme(); }
+document.querySelectorAll('#theme button').forEach((b) => b.addEventListener('click', () => setTheme(b.dataset.theme)));
+matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => { if (themePref === 'system') applyTheme(); });
+applyTheme();
+
+// Back to the Nucleus hub (same host, default port — Anchor runs on :8888).
+$('hub').addEventListener('click', () => { location.href = `${location.protocol}//${location.hostname}/`; });
 
 let needsSetup = false;
 

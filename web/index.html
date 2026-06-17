@@ -5,10 +5,12 @@
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Anchor — Nucleus control plane</title>
 <script>
-  // Apply theme before paint to avoid a flash.
+  // Apply theme before paint to avoid a flash. Uses the shared Nucleus cookie
+  // (nucleus-theme), so Anchor's theme matches the hub on the same host.
   (function () {
     try {
-      var t = localStorage.getItem('anchor-theme') || 'system';
+      var m = document.cookie.match(/(?:^|; )nucleus-theme=([^;]*)/);
+      var t = m ? decodeURIComponent(m[1]) : 'system';
       var dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
       document.documentElement.classList.toggle('dark', dark);
     } catch (e) {}
@@ -95,6 +97,13 @@
   button.danger { border-color: color-mix(in srgb, var(--red) 55%, transparent); color: var(--red); }
   button.danger:hover { background: var(--red); color: #fff; border-color: var(--red); }
   .icon-btn { width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 16px; border-radius: 10px; }
+  /* Theme switcher — 3-way segmented control matching Nucleus */
+  .theme-switch { display: flex; gap: 2px; padding: 3px; border-radius: 11px; background: var(--surface-2); border: 1px solid var(--border); }
+  .theme-switch button { padding: 5px 8px; border: none; background: transparent; border-radius: 8px; color: var(--muted); cursor: pointer; display: flex; align-items: center; box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; transition: color .15s, background .15s; }
+  .theme-switch button:hover { color: var(--text); transform: none; border: none; }
+  .theme-switch button.active { background: rgba(255, 255, 255, .85); color: #0f172a; box-shadow: 0 1px 3px rgba(15, 23, 42, .15); }
+  html.dark .theme-switch button.active { background: rgba(255, 255, 255, .18); color: #fff; box-shadow: none; }
+  .theme-switch svg { width: 16px; height: 16px; display: block; }
 
   /* Header */
   header {
@@ -187,7 +196,12 @@
     <span class="muted" style="font-size:12px">Nucleus control plane</span>
     <span class="spacer"></span>
     <span id="conn" class="pill">connecting…</span>
-    <button id="theme" class="icon-btn" title="Toggle theme">🌙</button>
+    <button id="hub" title="Back to the Nucleus hub">← Hub</button>
+    <div id="theme" class="theme-switch" role="group" aria-label="Theme">
+      <button data-theme="light" title="Light"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0z"/></svg></button>
+      <button data-theme="system" title="System"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M9 17.25v1.007a3 3 0 0 1-.879 2.122L7.5 21h9l-.621-.621A3 3 0 0 1 15 18.257V17.25m6-12V15a2.25 2.25 0 0 1-2.25 2.25H5.25A2.25 2.25 0 0 1 3 15V5.25m18 0A2.25 2.25 0 0 0 18.75 3H5.25A2.25 2.25 0 0 0 3 5.25m18 0H3"/></svg></button>
+      <button data-theme="dark" title="Dark"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path stroke-linecap="round" stroke-linejoin="round" d="M21.752 15.002A9.72 9.72 0 0 1 18 15.75c-5.385 0-9.75-4.365-9.75-9.75 0-1.33.266-2.597.748-3.752A9.753 9.753 0 0 0 3 11.25C3 16.635 7.365 21 12.75 21a9.753 9.753 0 0 0 9.002-5.998z"/></svg></button>
+    </div>
     <button id="logout">Log out</button>
   </header>
   <main>

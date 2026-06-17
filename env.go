@@ -3,8 +3,31 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 )
+
+// maskEnv replaces every non-empty value with a placeholder, preserving keys,
+// comments and blank lines — so the .env structure is visible without exposing
+// secrets until the operator explicitly reveals them.
+func maskEnv(content string) string {
+	lines := strings.Split(content, "\n")
+	for i, ln := range lines {
+		t := strings.TrimSpace(ln)
+		if t == "" || strings.HasPrefix(t, "#") {
+			continue
+		}
+		eq := strings.Index(ln, "=")
+		if eq < 0 {
+			continue
+		}
+		if strings.TrimSpace(ln[eq+1:]) == "" {
+			continue
+		}
+		lines[i] = ln[:eq+1] + "********"
+	}
+	return strings.Join(lines, "\n")
+}
 
 // EnvFile manages the Nucleus central .env. Writes always back up the previous
 // version first (there is otherwise no undo for a fat-fingered secret). Values

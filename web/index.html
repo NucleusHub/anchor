@@ -122,9 +122,10 @@
         <strong>Nucleus .env</strong><span id="env-path" class="muted"></span>
         <span class="spacer"></span>
         <button id="env-reload">Reload</button>
+        <button id="env-reveal">Reveal & edit</button>
         <button id="env-save" class="primary">Save</button>
       </div>
-      <p class="muted">Shown to the authenticated root only. A backup is written before every save. Changes apply only after the affected services are <strong>recreated</strong>.</p>
+      <p class="muted">Values are <strong>masked</strong> until you reveal them (a reveal is audited). A backup is written before every save; changes apply only after the affected services are <strong>recreated</strong>.</p>
       <textarea id="env-text" spellcheck="false"></textarea>
       <div id="env-msg" class="muted" style="margin-top:8px"></div>
     </div>

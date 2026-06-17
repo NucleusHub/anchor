@@ -88,6 +88,7 @@ $('tab-env').addEventListener('click', () => switchTab('env'));
 $('refresh').addEventListener('click', loadServices);
 $('refresh-audit').addEventListener('click', loadAudit);
 $('env-reload').addEventListener('click', loadEnv);
+$('env-reveal').addEventListener('click', revealEnv);
 $('env-save').addEventListener('click', saveEnv);
 
 function switchTab(name) {
@@ -235,10 +236,23 @@ async function loadEnv() {
   const r = await api('/api/anchor/env');
   $('env-msg').textContent = '';
   if (!r.ok) { $('env-text').value = ''; $('env-path').textContent = (r.body && r.body.error) || 'error'; return; }
-  $('env-path').textContent = r.body.path + (r.body.available ? '' : ' (not mounted — read-only)');
+  const avail = !!r.body.available;
+  $('env-path').textContent = r.body.path + (avail ? ' — masked' : ' (not mounted — read-only)');
   $('env-text').value = r.body.content || '';
-  $('env-text').disabled = !r.body.available;
-  $('env-save').disabled = !r.body.available;
+  $('env-text').disabled = true;        // read-only until revealed
+  $('env-save').disabled = true;
+  $('env-reveal').disabled = !avail;
+}
+
+async function revealEnv() {
+  const r = await api('/api/anchor/env?reveal=1');
+  if (!r.ok) { $('env-msg').textContent = (r.body && r.body.error) || 'reveal failed'; return; }
+  $('env-text').value = r.body.content || '';
+  $('env-text').disabled = false;
+  $('env-save').disabled = false;
+  $('env-reveal').disabled = true;
+  $('env-path').textContent = r.body.path + ' — revealed (editing)';
+  $('env-msg').textContent = 'Secrets revealed — edit and Save.';
 }
 
 async function saveEnv() {

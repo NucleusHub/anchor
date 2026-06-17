@@ -162,7 +162,7 @@ func (s *Server) composeAction(w http.ResponseWriter, r *http.Request, action st
 
 func (s *Server) handleEnvGet(w http.ResponseWriter, r *http.Request) {
 	if !s.env.Available() {
-		writeJSON(w, http.StatusOK, map[string]any{"available": false, "path": s.env.Path(), "content": ""})
+		writeJSON(w, http.StatusOK, map[string]any{"available": false, "path": s.env.Path(), "content": "", "revealed": false})
 		return
 	}
 	content, err := s.env.Read()
@@ -170,7 +170,14 @@ func (s *Server) handleEnvGet(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"available": true, "path": s.env.Path(), "content": content})
+	// Values are masked unless the operator explicitly asks to reveal — and a
+	// reveal is itself an audited event.
+	if r.URL.Query().Get("reveal") == "1" {
+		s.audit.Log(AuditEntry{Event: "env_reveal", Target: s.env.Path(), IP: clientIP(r)})
+		writeJSON(w, http.StatusOK, map[string]any{"available": true, "path": s.env.Path(), "content": content, "revealed": true})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"available": true, "path": s.env.Path(), "content": maskEnv(content), "revealed": false})
 }
 
 func (s *Server) handleEnvPut(w http.ResponseWriter, r *http.Request) {

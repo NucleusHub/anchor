@@ -356,9 +356,11 @@ These are changes to **existing** Nucleus tooling, independent of building Ancho
    Labels emitted by `generate.js` (`prodServerBlock` + infra blocks), the base
    `infra/docker-compose.yml`, the `infra/create-app.js` scaffold template, and
    backfilled into all existing `apps/*/docker-compose.app.yml`.
-3. ⬜ **nginx `error_page` → static fallback** added to the `generate.js` template
-   (§11.1). **Deferred to Phase 4** (failure-mode UI) — it has no consumer until
-   Anchor is reachable to link to.
+3. ✅ **nginx `error_page` → static fallback** added to the `generate.js`
+   template (§11.1) — **done in Phase 4.** Both dev and prod configs emit an
+   `@anchor_fallback` location serving an inline degraded-mode page that links to
+   Anchor on `:8888` of the same host; the catch-all `location /` uses
+   `proxy_intercept_errors` + `error_page 502 503 504`. Validated with `nginx -t`.
 
 ### Phase 1 status (foundation — landed)
 
@@ -392,10 +394,24 @@ Two implementation details that make compose actions robust:
   `DOCKER_BUILDKIT=0` so the classic `/build` endpoint (allowed by `BUILD=1`) is
   used instead.
 
-**Deferred to Phase 4:** the nginx `error_page` fallback (§11.1), Tailscale
-HTTPS + `ANCHOR_SECURE`, exec-create ACL hardening, optional secret masking in
-the `.env` editor, and per-`.env`-key dependency-aware "which services to
-recreate" hints.
+### Phase 4 status (hardening/polish — partial)
+
+- ✅ **nginx degraded-mode fallback** (§11.1) — `@anchor_fallback` in dev + prod,
+  inline page linking to Anchor; `nginx -t` clean. Touches the `infra` repo;
+  takes effect on the next Nucleus deploy.
+- ✅ **`.env` secret masking** — values masked by default in the editor; an
+  explicit, audited reveal (`GET …/env?reveal=1`) loads raw for editing.
+
+**Still open (optional):**
+- **Tailscale HTTPS + `ANCHOR_SECURE`** — serve Anchor over the tailnet with TLS
+  and flip the session cookie to `Secure`. Environment-specific; documented in
+  `deploy/README.md`.
+- **exec-create ACL** — exec *start* is already blocked (no command can run);
+  fully closing exec *create* needs a filtering reverse-proxy in front of the
+  socket-proxy. Left as a documented residual to avoid adding a fragile hop in
+  front of the working build/events path (§4.1).
+- **Dependency-aware recreate hints** — "editing key X means recreate services
+  A, B" — needs a `.env`-key → service map.
 
 ---
 

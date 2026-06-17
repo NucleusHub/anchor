@@ -66,7 +66,7 @@ document.addEventListener('keydown', (e) => {
 // ── App ──────────────────────────────────────────────────────────────────────
 
 let sse = null;
-let selectedId = null;
+let selected = null; // currently open service
 
 function showApp() {
   $('gate').classList.add('hidden');
@@ -84,16 +84,20 @@ $('logout').addEventListener('click', async () => {
 
 $('tab-services').addEventListener('click', () => switchTab('services'));
 $('tab-audit').addEventListener('click', () => switchTab('audit'));
+$('tab-env').addEventListener('click', () => switchTab('env'));
 $('refresh').addEventListener('click', loadServices);
 $('refresh-audit').addEventListener('click', loadAudit);
+$('env-reload').addEventListener('click', loadEnv);
+$('env-save').addEventListener('click', saveEnv);
 
 function switchTab(name) {
-  const svc = name === 'services';
-  $('tab-services').classList.toggle('active', svc);
-  $('tab-audit').classList.toggle('active', !svc);
-  $('services-view').classList.toggle('hidden', !svc);
-  $('audit-view').classList.toggle('hidden', svc);
-  if (svc) loadServices(); else loadAudit();
+  for (const t of ['services', 'audit', 'env']) {
+    $('tab-' + t).classList.toggle('active', t === name);
+    $(t + '-view').classList.toggle('hidden', t !== name);
+  }
+  if (name === 'services') loadServices();
+  if (name === 'audit') loadAudit();
+  if (name === 'env') loadEnv();
 }
 
 const HEALTH_LABEL = { healthy: 'healthy', unhealthy: 'unhealthy', starting: 'starting', none: '—' };
@@ -103,7 +107,7 @@ async function loadServices() {
   const body = $('svc-body');
   body.innerHTML = '';
   if (!r.ok) {
-    body.innerHTML = `<tr><td colspan="6" class="err">${(r.body && r.body.error) || 'failed to load'}</td></tr>`;
+    body.innerHTML = `<tr><td colspan="6" class="err">${esc((r.body && r.body.error) || 'failed to load')}</td></tr>`;
     $('svc-count').textContent = '0 services';
     return;
   }
@@ -128,15 +132,21 @@ async function loadServices() {
       <td>${s.app ? esc(s.app) : '<span class="muted">—</span>'}</td>
       <td><span class="tag">${esc(s.role || '—')}</span></td>
       <td style="color:${stateColor}">${esc(s.state)}</td>
-      <td><span class="dot ${s.health}"></span>${HEALTH_LABEL[s.health] || s.health}</td>
+      <td><span class="dot ${s.health}"></span>${HEALTH_LABEL[s.health] || esc(s.health)}</td>
       <td class="muted">${esc(s.status)}</td>`;
     tr.addEventListener('click', () => openDetail(s));
     body.appendChild(tr);
   }
+  // keep an open detail panel in sync
+  if (selected) {
+    const fresh = services.find((x) => x.id === selected.id);
+    if (fresh) selected = fresh;
+  }
 }
 
-async function openDetail(s) {
-  selectedId = s.id;
+function openDetail(s) {
+  selected = s;
+  const running = s.state === 'running';
   const d = $('detail');
   d.classList.remove('hidden');
   d.innerHTML = `
@@ -145,18 +155,52 @@ async function openDetail(s) {
       <span class="tag">${esc(s.role || '—')}</span>
       ${s.app ? `<span class="tag">${esc(s.app)}</span>` : ''}
       <span class="spacer"></span>
-      <button id="reload-logs">Reload logs</button>
       <button id="close-detail">Close</button>
     </div>
     <div class="muted">${esc(s.image)} — ${esc(s.status)}</div>
-    <h4>Logs (last 300 lines)</h4>
+    <div class="actions">
+      <button data-act="start" ${running ? 'disabled' : ''}>Start</button>
+      <button data-act="restart">Restart</button>
+      <button data-act="stop" class="danger" ${running ? '' : 'disabled'}>Stop</button>
+      <button data-act="recreate" class="danger">Recreate</button>
+      <button data-act="rebuild" class="danger">Rebuild</button>
+    </div>
+    <pre id="action-out" class="hidden"></pre>
+    <div class="row" style="margin:0"><h4 style="margin:0">Logs (last 300)</h4><span class="spacer"></span><button id="reload-logs">Reload</button></div>
     <pre id="logs">loading…</pre>
     <details><summary>Raw inspect</summary><pre id="inspect">loading…</pre></details>`;
-  $('close-detail').addEventListener('click', () => { d.classList.add('hidden'); selectedId = null; });
+
+  $('close-detail').addEventListener('click', () => { d.classList.add('hidden'); selected = null; });
   $('reload-logs').addEventListener('click', () => loadLogs(s.id));
+  d.querySelectorAll('button[data-act]').forEach((b) =>
+    b.addEventListener('click', () => runAction(s, b.dataset.act)));
+
   loadLogs(s.id);
   loadInspect(s.id);
   d.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function runAction(s, action) {
+  const out = $('action-out');
+  const postIt = (extra) => api(`/api/anchor/services/${encodeURIComponent(s.id)}/${action}`,
+    { method: 'POST', body: JSON.stringify(extra || {}) });
+
+  let r = await postIt({});
+  if (r.status === 428 && r.body && r.body.needsConfirm) {
+    const ok = await showConfirm(`Confirm: ${action} ${s.name}`, r.body.impact);
+    if (!ok) return;
+    r = await postIt({ confirmToken: r.body.confirmToken });
+  }
+  if (out) {
+    out.classList.remove('hidden');
+    if (r.ok) {
+      out.textContent = `✓ ${action} ok` + (r.body && r.body.output ? `\n\n${r.body.output}` : '');
+    } else {
+      out.textContent = `✗ ${action} failed: ${(r.body && r.body.error) || r.status}` +
+        (r.body && r.body.output ? `\n\n${r.body.output}` : '');
+    }
+  }
+  setTimeout(loadServices, 500);
 }
 
 async function loadLogs(id) {
@@ -179,13 +223,60 @@ async function loadAudit() {
   const body = $('audit-body');
   body.innerHTML = '';
   const entries = (r.ok && r.body.entries) || [];
-  if (!entries.length) { body.innerHTML = '<tr><td colspan="4" class="muted">no entries yet</td></tr>'; return; }
+  if (!entries.length) { body.innerHTML = '<tr><td colspan="5" class="muted">no entries yet</td></tr>'; return; }
   for (const e of entries) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td class="muted">${esc(e.ts)}</td><td>${esc(e.event)}</td><td>${esc(e.target || '')}</td><td class="muted">${esc(e.ip || '')}</td>`;
+    tr.innerHTML = `<td class="muted">${esc(e.ts)}</td><td>${esc(e.event)}</td><td>${esc((e.target || '').slice(0, 24))}</td><td class="muted">${esc(e.detail || '')}</td><td class="muted">${esc(e.ip || '')}</td>`;
     body.appendChild(tr);
   }
 }
+
+async function loadEnv() {
+  const r = await api('/api/anchor/env');
+  $('env-msg').textContent = '';
+  if (!r.ok) { $('env-text').value = ''; $('env-path').textContent = (r.body && r.body.error) || 'error'; return; }
+  $('env-path').textContent = r.body.path + (r.body.available ? '' : ' (not mounted — read-only)');
+  $('env-text').value = r.body.content || '';
+  $('env-text').disabled = !r.body.available;
+  $('env-save').disabled = !r.body.available;
+}
+
+async function saveEnv() {
+  const content = $('env-text').value;
+  const put = (extra) => api('/api/anchor/env', { method: 'PUT', body: JSON.stringify({ content, ...extra }) });
+  let r = await put({});
+  if (r.status === 428 && r.body && r.body.needsConfirm) {
+    const ok = await showConfirm('Confirm .env edit', r.body.impact);
+    if (!ok) return;
+    r = await put({ confirmToken: r.body.confirmToken });
+  }
+  const msg = $('env-msg');
+  if (r.ok) {
+    msg.textContent = `✓ Saved. ${r.body.note || ''}` + (r.body.backup ? ` (backup: ${r.body.backup})` : '');
+  } else {
+    msg.textContent = `✗ ${(r.body && r.body.error) || r.status}`;
+  }
+}
+
+// ── Confirm modal ────────────────────────────────────────────────────────────
+
+function showConfirm(title, impact) {
+  return new Promise((resolve) => {
+    $('modal-title').textContent = title;
+    $('modal-impact').textContent = impact || 'Are you sure?';
+    $('modal').classList.add('show');
+    const done = (val) => {
+      $('modal').classList.remove('show');
+      $('modal-ok').onclick = null;
+      $('modal-cancel').onclick = null;
+      resolve(val);
+    };
+    $('modal-ok').onclick = () => done(true);
+    $('modal-cancel').onclick = () => done(false);
+  });
+}
+
+// ── Live updates ─────────────────────────────────────────────────────────────
 
 function connectSSE() {
   if (sse) sse.close();
@@ -193,9 +284,7 @@ function connectSSE() {
   sse.onopen = () => setConn(true);
   sse.onerror = () => setConn(false);
   sse.onmessage = (ev) => {
-    if (ev.data === 'refresh') {
-      if (!$('services-view').classList.contains('hidden')) loadServices();
-    }
+    if (ev.data === 'refresh' && !$('services-view').classList.contains('hidden')) loadServices();
   };
 }
 

@@ -61,6 +61,46 @@ func (d *Docker) get(ctx context.Context, client *http.Client, path string) (*ht
 	return client.Do(req)
 }
 
+// action issues a lifecycle POST (start/stop/restart) for a single container.
+func (d *Docker) action(ctx context.Context, id, verb string) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, d.base+"/containers/"+url.PathEscape(id)+"/"+verb, nil)
+	if err != nil {
+		return err
+	}
+	resp, err := d.http.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	// 204 = done, 304 = already in that state (e.g. start an already-running one).
+	if resp.StatusCode == http.StatusNoContent || resp.StatusCode == http.StatusNotModified {
+		return nil
+	}
+	b, _ := io.ReadAll(resp.Body)
+	return fmt.Errorf("%s: %s: %s", verb, resp.Status, strings.TrimSpace(string(b)))
+}
+
+func (d *Docker) Start(ctx context.Context, id string) error   { return d.action(ctx, id, "start") }
+func (d *Docker) Stop(ctx context.Context, id string) error    { return d.action(ctx, id, "stop") }
+func (d *Docker) Restart(ctx context.Context, id string) error { return d.action(ctx, id, "restart") }
+
+// Labels returns a container's labels (used for scope + compose-service lookup).
+func (d *Docker) Labels(ctx context.Context, id string) (map[string]string, error) {
+	raw, err := d.Inspect(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	var meta struct {
+		Config struct {
+			Labels map[string]string
+		}
+	}
+	if err := json.Unmarshal(raw, &meta); err != nil {
+		return nil, err
+	}
+	return meta.Config.Labels, nil
+}
+
 // Container is the subset of /containers/json we use.
 type Container struct {
 	ID     string            `json:"Id"`

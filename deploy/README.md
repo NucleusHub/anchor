@@ -9,40 +9,46 @@ from the `nucleus` project — so tearing Nucleus down
 
 - `docker-compose.yml` — the `anchor` project:
   - **anchor** — the Go control-plane daemon, on host port **8888**.
-  - **docker-socket-proxy** — a read-only Docker API gateway (Tecnativa).
-    Phase 2 sets `POST=0` and `EXEC=0`, so the daemon **cannot** mutate anything
-    or exec into containers. This is platform-level enforcement, not just UI.
+  - **docker-socket-proxy** — a Docker API gateway (Tecnativa). Phase 3 allows
+    `POST`/`BUILD` (for lifecycle/recreate/rebuild) but keeps `EXEC=0`, so no
+    command can actually be executed inside a container.
 
 ## Run it
 
 ```bash
 cd apps/anchor/deploy
-docker compose up -d --build
+NUCLEUS_REPO=$(cd ../../.. && pwd) docker compose up -d --build
 ```
+
+`NUCLEUS_REPO` is the **absolute host path** of the Nucleus repo. Anchor mounts it
+at that same path inside the container so `docker compose` recreate/rebuild
+resolves the project's relative build contexts and bind mounts to paths the host
+daemon can see. **If you omit it**, read-only + lifecycle still work, but
+recreate / rebuild / `.env` editing are disabled.
 
 Then open **http://<host>:8888** (or over Tailscale). First load prompts you to
 set the root password (argon2id, stored at `/data/config.json`, 0600).
 
-## What you can do in Phase 2 (read-only)
+> **Prerequisite for discovery:** the Nucleus stack must be running **with the
+> labels** from Phase 1. If you deployed Nucleus before that, redeploy once
+> (`infra/build`) so its containers carry `nucleus.*` labels.
 
-- See every Nucleus container discovered via the `nucleus.managed=true` label,
-  grouped by app, with role / state / health / status — **live** (the list
-  refreshes on Docker events via SSE).
-- Open a service to view its **logs** (last 300 lines) and full **inspect** JSON.
-- Review the **audit log** (logins, log/inspect views) — append-only JSONL at
-  `/data/audit.jsonl`.
+## What you can do
 
-> **Prerequisite:** the Nucleus stack must be running **with the labels** added in
-> Phase 1. If you deployed Nucleus before that, redeploy it once
-> (`infra/build`) so its containers carry `nucleus.*` labels — otherwise Anchor
-> discovers nothing.
+- **Discover** every Nucleus container via the `nucleus.managed=true` label,
+  grouped by app, with role / state / health — **live** (SSE on Docker events).
+- **Logs** (last 300 lines) and full **inspect** per service.
+- **Lifecycle:** start / restart (non-destructive); **stop** (destructive).
+- **Recreate** (apply new `.env` / config from the existing image) and
+  **Rebuild** (rebuild the image from source) — via `docker compose`.
+- **Edit `.env`** — backup-before-write; changes apply after a recreate.
+- All **destructive actions require a two-step server-side confirmation**; every
+  action is recorded in the append-only **audit log** (`/data/audit.jsonl`).
 
-## Not yet (Phase 3+)
+## Not yet (Phase 4)
 
-Lifecycle actions (start / stop / restart / recreate), `.env` editing, and
-rebuild-from-source — these require flipping specific proxy endpoints on and
-adding server-side two-step confirmation guards. Phase 4 adds the nginx fallback
-page and Tailscale HTTPS.
+nginx `error_page` degraded-mode fallback, Tailscale HTTPS (`ANCHOR_SECURE`),
+exec-create ACL hardening, and optional secret masking in the `.env` editor.
 
 ## Recovery
 

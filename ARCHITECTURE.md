@@ -116,7 +116,7 @@ Anchor never mounts the raw socket. A filtering proxy
 | Logs | container logs | **Allow** |
 | Lifecycle | `POST start/stop/restart`, `containers/create`, `containers/{id}` (recreate) | **Allow (gated by Anchor auth + allowlist)** |
 | Build | `build`, `images/create` (for *Rebuild from source*) | **Allow (gated)** |
-| **Exec** | `/exec` | **BLOCKED at proxy** — this is what truly enforces "no arbitrary command execution"; a UI ban alone is bypassable |
+| **Exec** | `/exec/{id}/start` | **BLOCKED at proxy** (`EXEC=0`) — this is the call that actually runs a command, so no command can execute. *Residual:* exec *create* (`/containers/{id}/exec`) falls under the `CONTAINERS` grant and returns 201 but is inert without start; fully closing it needs a custom ACL (Phase 4 hardening). |
 | Swarm/secrets/configs/plugins | all | **BLOCKED** (out of scope) |
 
 ### 4.2 Defense in depth
@@ -366,7 +366,36 @@ Phase 1 delivered the non-breaking foundation: ecosystem exclusion (item 1) and
 the discovery-label substrate (item 2), with **zero change to the runtime
 behavior** of the existing stack. The only observable effect is a one-time
 container recreate on the next deploy, caused by the added (inert) labels.
-The Go daemon, socket-proxy, auth, actions, and UI remain Phase 2+.
+
+### Phase 2 status (read-only control plane — landed)
+
+Go single-binary daemon in its own Compose project + read-only socket-proxy
+(`POST=0`, `EXEC=0`): first-run argon2id auth, sessions, discovery via labels,
+logs, inspect, append-only JSONL audit, live SSE updates, embedded HTML+JS UI.
+
+### Phase 3 status (action system — landed)
+
+Lifecycle (start/stop/restart via the Docker API), recreate + rebuild (via
+`docker compose`), and `.env` view/edit (backup-before-write, "recreate to
+apply"). All destructive actions use the two-step server-side confirm-token
+guard; every action is audited. Socket-proxy now allows `POST`/`BUILD` but keeps
+`EXEC=0` (see §4.1 for the exec-create residual).
+
+Two implementation details that make compose actions robust:
+- **Label-derived targeting.** recreate/rebuild read the project, **config files**
+  and working dir from each container's own `com.docker.compose.*` labels — so
+  Anchor acts against the exact files the stack was started with (dev *or* prod),
+  never an assumed one. The repo is mounted at its real absolute host path so
+  those paths resolve identically inside Anchor and to the host daemon.
+- **Legacy builder for rebuild.** BuildKit needs a session/hijack ("upgrade to
+  tcp") endpoint the socket-proxy blocks (403); Anchor runs compose with
+  `DOCKER_BUILDKIT=0` so the classic `/build` endpoint (allowed by `BUILD=1`) is
+  used instead.
+
+**Deferred to Phase 4:** the nginx `error_page` fallback (§11.1), Tailscale
+HTTPS + `ANCHOR_SECURE`, exec-create ACL hardening, optional secret masking in
+the `.env` editor, and per-`.env`-key dependency-aware "which services to
+recreate" hints.
 
 ---
 

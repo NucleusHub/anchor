@@ -18,6 +18,9 @@ type Server struct {
 	sessions *Sessions
 	audit    *Audit
 	docker   *Docker
+	compose  *Compose
+	env      *EnvFile
+	confirm  *ConfirmStore
 	limiter  *RateLimiter
 	secure   bool // set ANCHOR_SECURE=1 when served over HTTPS (Tailscale)
 }
@@ -51,6 +54,9 @@ func main() {
 		sessions: NewSessions(24 * time.Hour),
 		audit:    NewAudit(),
 		docker:   NewDocker(),
+		compose:  NewCompose(),
+		env:      NewEnvFile(),
+		confirm:  NewConfirmStore(),
 		limiter:  &RateLimiter{},
 		secure:   os.Getenv("ANCHOR_SECURE") == "1",
 	}
@@ -70,6 +76,14 @@ func main() {
 	mux.HandleFunc("GET /api/anchor/services/{id}/logs", srv.requireAuth(srv.handleLogs))
 	mux.HandleFunc("GET /api/anchor/events", srv.requireAuth(srv.handleEvents))
 	mux.HandleFunc("GET /api/anchor/audit", srv.requireAuth(srv.handleAudit))
+	// Phase 3 — actions (destructive ones gated by a two-step confirm token).
+	mux.HandleFunc("POST /api/anchor/services/{id}/start", srv.requireAuth(srv.handleStart))
+	mux.HandleFunc("POST /api/anchor/services/{id}/restart", srv.requireAuth(srv.handleRestart))
+	mux.HandleFunc("POST /api/anchor/services/{id}/stop", srv.requireAuth(srv.handleStop))
+	mux.HandleFunc("POST /api/anchor/services/{id}/recreate", srv.requireAuth(srv.handleRecreate))
+	mux.HandleFunc("POST /api/anchor/services/{id}/rebuild", srv.requireAuth(srv.handleRebuild))
+	mux.HandleFunc("GET /api/anchor/env", srv.requireAuth(srv.handleEnvGet))
+	mux.HandleFunc("PUT /api/anchor/env", srv.requireAuth(srv.handleEnvPut))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})

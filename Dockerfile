@@ -15,7 +15,9 @@ RUN go mod tidy && \
 # /data volume; it holds NO host mounts and reaches Docker only via the read-only
 # socket-proxy sidecar (see deploy/docker-compose.yml).
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates wget
+# docker-cli + compose plugin: used for recreate/rebuild against the Nucleus
+# project (lifecycle start/stop/restart go through the Docker API directly).
+RUN apk add --no-cache ca-certificates wget docker-cli docker-cli-compose
 COPY --from=build /anchor /anchor
 EXPOSE 8888
 HEALTHCHECK --interval=10s --timeout=3s --retries=5 \

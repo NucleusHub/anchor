@@ -57,6 +57,14 @@
   .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
   details summary { cursor: pointer; color: var(--accent); margin: 10px 0; }
   .grouphdr td { background: #10151c; color: var(--accent); font-weight: 600; text-transform: uppercase; font-size: 11px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
+  button.danger { border-color: var(--red); color: var(--red); }
+  button.danger:hover { background: var(--red); color: #0d1117; }
+  textarea { width: 100%; height: 340px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font: inherit; }
+  #modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); align-items: center; justify-content: center; display: none; }
+  #modal.show { display: flex; }
+  #modal .box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 24px; max-width: 460px; }
+  #modal h3 { margin: 0 0 10px; }
 </style>
 </head>
 <body>
@@ -84,6 +92,7 @@
     <div class="tabs">
       <button id="tab-services" class="active">Services</button>
       <button id="tab-audit">Audit log</button>
+      <button id="tab-env">.env</button>
     </div>
 
     <div id="services-view">
@@ -103,11 +112,35 @@
     <div id="audit-view" class="hidden">
       <div class="row"><strong>Audit log</strong><span class="muted">— append-only, newest first</span><span class="spacer"></span><button id="refresh-audit">Refresh</button></div>
       <table>
-        <thead><tr><th>Time (UTC)</th><th>Event</th><th>Target</th><th>IP</th></tr></thead>
+        <thead><tr><th>Time (UTC)</th><th>Event</th><th>Target</th><th>Detail</th><th>IP</th></tr></thead>
         <tbody id="audit-body"></tbody>
       </table>
     </div>
+
+    <div id="env-view" class="hidden">
+      <div class="row">
+        <strong>Nucleus .env</strong><span id="env-path" class="muted"></span>
+        <span class="spacer"></span>
+        <button id="env-reload">Reload</button>
+        <button id="env-save" class="primary">Save</button>
+      </div>
+      <p class="muted">Shown to the authenticated root only. A backup is written before every save. Changes apply only after the affected services are <strong>recreated</strong>.</p>
+      <textarea id="env-text" spellcheck="false"></textarea>
+      <div id="env-msg" class="muted" style="margin-top:8px"></div>
+    </div>
   </main>
+</div>
+
+<!-- Confirmation modal for destructive actions -->
+<div id="modal">
+  <div class="box">
+    <h3 id="modal-title">Confirm</h3>
+    <p id="modal-impact" class="muted"></p>
+    <div class="row" style="justify-content:flex-end;margin:0">
+      <button id="modal-cancel">Cancel</button>
+      <button id="modal-ok" class="danger">Confirm</button>
+    </div>
+  </div>
 </div>
 
 <script src="app.js"></script>

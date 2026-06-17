@@ -1,6 +1,14 @@
 # Anchor runs as its OWN Compose project (name: anchor) — entirely separate from
 # the `nucleus` project, so `docker compose -p nucleus down` never takes it with
-# it. Start it independently:  cd apps/anchor/deploy && docker compose up -d --build
+# it. Start it independently:
+#
+#   NUCLEUS_REPO=$(cd ../../.. && pwd) docker compose up -d --build
+#
+# NUCLEUS_REPO must be the ABSOLUTE host path of the Nucleus repo. Anchor mounts
+# it at that SAME path inside the container so `docker compose` recreate/rebuild
+# resolves the project's relative build contexts and bind mounts to paths the
+# host daemon can actually see. If unset, recreate/rebuild/.env editing are
+# simply disabled (read-only + lifecycle still work).
 name: anchor
 
 services:
@@ -15,20 +23,26 @@ services:
       ANCHOR_DATA: /data
       ANCHOR_ADDR: ":8888"
       DOCKER_HOST: tcp://docker-socket-proxy:2375
-      # ANCHOR_SECURE: "1"     # enable when served over HTTPS (Tailscale) so the
-                               # session cookie gets the Secure flag.
+      # Recreate/rebuild derive the compose project + files from each container's
+      # own labels — Anchor just needs the repo mounted at its host path (below).
+      # NUCLEUS_ENV points the .env editor at the central env file.
+      NUCLEUS_ENV: ${NUCLEUS_REPO:-/opt/nucleus-not-mounted}/infra/.env
+      # ANCHOR_SECURE: "1"     # enable when served over HTTPS (Tailscale)
     volumes:
-      - anchor_data:/data      # config (0600) + audit.jsonl live here; survives recreate
+      - anchor_data:/data      # config (0600) + audit.jsonl; survives recreate
+      # Nucleus repo mounted at its own absolute path (see header).
+      - ${NUCLEUS_REPO:-/opt/nucleus-not-mounted}:${NUCLEUS_REPO:-/opt/nucleus-not-mounted}
     depends_on:
       - docker-socket-proxy
     deploy:
       resources:
         limits:
-          memory: 128M
-          cpus: "0.50"
+          memory: 256M
+          cpus: "0.75"
 
-  # Read-only Docker API gateway. Anchor never touches the raw socket — this proxy
-  # is the platform-level enforcement of "no mutations, no exec" for Phase 2.
+  # Docker API gateway. Phase 3 enables POST (lifecycle/recreate) and BUILD
+  # (rebuild) but keeps EXEC=0 — no exec into containers, ever. Anchor's own
+  # allowlist + nucleus.managed scope + two-step confirm are the finer controls.
   docker-socket-proxy:
     image: tecnativa/docker-socket-proxy:0.3.0
     restart: unless-stopped
@@ -41,8 +55,12 @@ services:
       INFO: 1
       VERSION: 1
       PING: 1
-      POST: 0                  # block ALL mutating calls (start/stop/create/...)
-      EXEC: 0                  # block container exec entirely
+      BUILD: 1                 # allow image builds (rebuild-from-source)
+      POST: 1                  # allow mutating calls (start/stop/restart/recreate)
+      EXEC: 0                  # blocks exec START (/exec/{id}/start) -> no command
+                               # can actually run. NB: exec CREATE falls under the
+                               # CONTAINERS grant and returns 201 but is inert
+                               # without start; fully closing it = Phase 4 ACL.
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     # No host ports — only reachable by `anchor` on this project's private network.

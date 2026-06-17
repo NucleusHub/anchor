@@ -89,7 +89,7 @@ func (c *Compose) Recreate(ctx context.Context, t ComposeTarget) (string, error)
 
 // Rebuild rebuilds a service's image from its build context, then recreates it.
 // Note: this rebuilds the container image (e.g. a node server), not pre-built
-// frontend assets — those are produced by infra/build on the host.
+// frontend assets — those are produced by infra/production on the host.
 func (c *Compose) Rebuild(ctx context.Context, t ComposeTarget) (string, error) {
 	return c.run(ctx, t, "up", "-d", "--build", "--no-deps", "--force-recreate", t.Service)
 }

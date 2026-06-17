@@ -1,6 +1,6 @@
 # Presence of this file excludes apps/anchor from ALL Nucleus discovery:
 # the registry API, nginx/compose generation (infra/generate.js), and the
-# hub-library symlink step (infra/build).
+# hub-library symlink step (infra/production).
 #
 # Anchor is a privileged infrastructure control plane, NOT a Nucleus app. It
 # lives under apps/ for organizational reasons only and runs as its own,

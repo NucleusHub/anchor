@@ -46,7 +46,7 @@ All four current discovery paths must be taught the rule:
 
 1. `infra/registry/index.js` — skip `apps/*` and `widgets/*` dirs with `nucleus.ignore`.
 2. `infra/generate.js` — exclude such dirs from nginx/compose generation.
-3. `infra/build` — exclude from the library-app symlink step (the empty
+3. `infra/production` — exclude from the library-app symlink step (the empty
    `apps/anchor` currently matches the lib-app pattern; this guard prevents it
    from being symlinked into the hub).
 4. Echo manifest loader + frontend glob — skip `apps/*/echo` under ignored dirs.
@@ -72,10 +72,10 @@ rather than implied as a hard sandbox.
 Anchor runs as its **own Compose project**, separate from `nucleus`. This is the
 single most important independence property:
 
-- `docker compose -p nucleus down --remove-orphans` (which `infra/build` runs)
+- `docker compose -p nucleus down --remove-orphans` (which `infra/production` runs)
   **must not** touch Anchor.
 - Anchor has its own compose file (e.g. `apps/anchor/deploy/docker-compose.yml`),
-  started independently of `infra/build`.
+  started independently of `infra/production`.
 - Anchor is **never** emitted into the generated Nucleus compose files.
 
 ```
@@ -177,7 +177,7 @@ endpoint.
 | View logs | read | stream logs |
 | Inspect health | read | `containers/{id}/json` health field |
 | **Recreate** | semi-destructive | recreate from existing image; **applies new `.env`**. Fast, self-contained. |
-| **Rebuild from source** | **destructive/heavy** | invokes the existing `infra/build` pipeline as a subprocess (`--build`). Explicitly couples to Nucleus build tooling; clearly labeled as the heavy path. |
+| **Rebuild from source** | **destructive/heavy** | invokes the existing `infra/production` pipeline as a subprocess (`--build`). Explicitly couples to Nucleus build tooling; clearly labeled as the heavy path. |
 | Edit `.env` | **dangerous** | controlled filesystem write (§7) |
 | Manage volumes | **destructive** | create/inspect/remove (delete behind double-confirm) |
 | Manage images | semi-destructive | list/pull/remove |
@@ -186,7 +186,7 @@ endpoint.
 
 - **Recreate** — `docker compose up -d --force-recreate <svc>` semantics; from the
   current image; cheap; the default break-glass "apply config & bounce cleanly."
-- **Rebuild from source** — re-runs `infra/build` for the target; heavy; couples to
+- **Rebuild from source** — re-runs `infra/production` for the target; heavy; couples to
   repo layout + build pipeline; surfaced as a separate, more-guarded action with a
   cost/time warning.
 
@@ -350,7 +350,7 @@ These are changes to **existing** Nucleus tooling, independent of building Ancho
 
 1. ✅ **`nucleus.ignore` guard** added to all scanners (§2.2) — **done in Phase 1.**
    Applied in `infra/generate.js` (`readManifests` + `findHubLibraries`),
-   `infra/registry/index.js`, and `infra/build` (lib-app loop + standalone-client
+   `infra/registry/index.js`, and `infra/production` (lib-app loop + standalone-client
    find). Marker file: `apps/anchor/nucleus.ignore`.
 2. ✅ **`generate.js` label emission** — the taxonomy in §5.1 — **done in Phase 1.**
    Labels emitted by `generate.js` (`prodServerBlock` + infra blocks), the base
@@ -422,5 +422,5 @@ Two implementation details that make compose actions robust:
 - Audit log retention/rotation thresholds.
 - Optional future MFA on the root user (single-user + full infra power is a
   standing risk; argon2id + rate-limit + re-auth-before-destructive is the v1 floor).
-- Exact `infra/build` subprocess contract for *Rebuild from source* (args, working
+- Exact `infra/production` subprocess contract for *Rebuild from source* (args, working
   dir, streaming build output to the UI).

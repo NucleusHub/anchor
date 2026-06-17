@@ -31,7 +31,7 @@ set the root password (argon2id, stored at `/data/config.json`, 0600).
 
 > **Prerequisite for discovery:** the Nucleus stack must be running **with the
 > labels** from Phase 1. If you deployed Nucleus before that, redeploy once
-> (`infra/build`) so its containers carry `nucleus.*` labels.
+> (`infra/production`) so its containers carry `nucleus.*` labels.
 
 ## What you can do
 

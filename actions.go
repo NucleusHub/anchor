@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"sort"
+	"strings"
 )
 
 // sharedRoles are infrastructure components that multiple apps depend on —
@@ -14,16 +16,54 @@ var sharedRoles = map[string]bool{
 	"proxy": true, "registry": true, "auth": true,
 }
 
-func impactMessage(action, name string, labels map[string]string) string {
+// impact builds the confirmation warning. For shared infrastructure it names the
+// actual dependent apps (derived from nucleus.depends labels across the stack),
+// falling back to a generic warning if none are labeled yet.
+func (s *Server) impact(ctx context.Context, action, name string, labels map[string]string) string {
 	role := labels["nucleus.role"]
 	app := labels["nucleus.app"]
 	if sharedRoles[role] {
+		svc := labels["com.docker.compose.service"]
+		if svc != "" {
+			if deps := s.dependents(ctx, svc); len(deps) > 0 {
+				return fmt.Sprintf("'%s' (%s) is used by: %s. This %s will disrupt them.",
+					name, role, strings.Join(deps, ", "), action)
+			}
+		}
 		return fmt.Sprintf("'%s' is shared infrastructure (%s). %s may disrupt multiple Nucleus apps.", name, role, action)
 	}
 	if app != "" {
 		return fmt.Sprintf("The '%s' app will be affected by %s.", app, action)
 	}
 	return fmt.Sprintf("This will %s the container.", action)
+}
+
+// dependents returns the distinct apps whose nucleus.depends label includes the
+// given backing-service name (e.g. "mongo").
+func (s *Server) dependents(ctx context.Context, service string) []string {
+	list, err := s.docker.ListManaged(ctx)
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var out []string
+	for _, c := range list {
+		for _, d := range strings.Split(c.Labels["nucleus.depends"], ",") {
+			if strings.TrimSpace(d) != service {
+				continue
+			}
+			who := c.Labels["nucleus.app"]
+			if who == "" && len(c.Names) > 0 {
+				who = strings.TrimPrefix(c.Names[0], "/")
+			}
+			if who != "" && !seen[who] {
+				seen[who] = true
+				out = append(out, who)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // confirmed implements the two-step guard for destructive actions. Without a
@@ -41,7 +81,7 @@ func (s *Server) confirmed(w http.ResponseWriter, r *http.Request, action, id, n
 		"needsConfirm": true,
 		"confirmToken": s.confirm.Issue(action, id),
 		"action":       action,
-		"impact":       impactMessage(action, name, labels),
+		"impact":       s.impact(r.Context(), action, name, labels),
 	})
 	return false
 }

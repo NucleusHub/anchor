@@ -12,6 +12,16 @@ async function api(path, opts = {}) {
   return { ok: res.ok, status: res.status, body };
 }
 
+// ── Theme (dark/light, matches Nucleus) ─────────────────────────────────────
+function currentDark() { return document.documentElement.classList.contains('dark'); }
+function setTheme(dark) {
+  document.documentElement.classList.toggle('dark', dark);
+  try { localStorage.setItem('anchor-theme', dark ? 'dark' : 'light'); } catch (e) {}
+  $('theme').textContent = dark ? '☀' : '🌙';
+}
+$('theme').textContent = currentDark() ? '☀' : '🌙';
+$('theme').addEventListener('click', () => setTheme(!currentDark()));
+
 let needsSetup = false;
 
 // ── Gate (setup / login) ─────────────────────────────────────────────────────

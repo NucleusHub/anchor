@@ -4,88 +4,183 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Anchor — Nucleus control plane</title>
+<script>
+  // Apply theme before paint to avoid a flash.
+  (function () {
+    try {
+      var t = localStorage.getItem('anchor-theme') || 'system';
+      var dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
+      document.documentElement.classList.toggle('dark', dark);
+    } catch (e) {}
+  })();
+</script>
 <style>
   :root {
-    --bg: #0d1117; --panel: #161b22; --border: #30363d; --text: #c9d1d9;
-    --muted: #8b949e; --accent: #58a6ff; --green: #3fb950; --red: #f85149;
-    --amber: #d29922; --gray: #6e7681;
+    --bg: #eef2f8;
+    --text: #0f172a;
+    --muted: #64748b;
+    --surface: rgba(255, 255, 255, 0.62);
+    --surface-2: rgba(255, 255, 255, 0.45);
+    --border: rgba(255, 255, 255, 0.72);
+    --line: rgba(15, 23, 42, 0.08);
+    --accent: #7c3aed;          /* violet-600 */
+    --accent-2: #0ea5e9;        /* sky-500 */
+    --on-accent: #ffffff;
+    --blur: 20px;
+    --shadow: 0 8px 28px rgba(15, 23, 42, 0.13), 0 2px 6px rgba(15, 23, 42, 0.06), 0 1px 0 rgba(255, 255, 255, 0.85) inset;
+    --green: #16a34a; --red: #dc2626; --amber: #d97706; --gray: #94a3b8;
+    --blob-v: #a78bfa; --blob-i: #818cf8; --blob-b: #60a5fa; --blob-op: 0.40;
   }
+  html.dark {
+    --bg: #0d0d1a;
+    --text: #f5f3ff;
+    --muted: #a39bc4;
+    --surface: rgba(45, 28, 78, 0.55);
+    --surface-2: rgba(45, 28, 78, 0.35);
+    --border: rgba(160, 120, 255, 0.20);
+    --line: rgba(180, 140, 255, 0.12);
+    --accent: #a78bfa;          /* violet-400 */
+    --accent-2: #60a5fa;        /* blue-400 */
+    --on-accent: #0d0d1a;
+    --shadow: 0 4px 32px rgba(0, 0, 0, 0.5), 0 1px 0 rgba(180, 140, 255, 0.08) inset;
+    --green: #3fb950; --red: #f85149; --amber: #d29922; --gray: #6e7681;
+    --blob-v: #7c3aed; --blob-i: #4f46e5; --blob-b: #2563eb; --blob-op: 0.45;
+  }
+
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body {
     margin: 0; background: var(--bg); color: var(--text);
-    font: 14px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font: 14px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
   }
-  header {
-    display: flex; align-items: center; gap: 16px;
-    padding: 12px 20px; border-bottom: 1px solid var(--border); background: var(--panel);
+
+  /* Animated gradient blobs behind everything */
+  .blobs { position: fixed; inset: 0; overflow: hidden; z-index: -1; pointer-events: none; }
+  .blob { position: absolute; border-radius: 50%; filter: blur(100px); opacity: var(--blob-op); will-change: transform; }
+  .blob.v { width: 460px; height: 460px; top: -120px; left: -110px; background: var(--blob-v); animation: float1 22s ease-in-out infinite; }
+  .blob.i { width: 460px; height: 460px; bottom: -140px; right: -120px; background: var(--blob-i); animation: float2 26s ease-in-out infinite; }
+  .blob.b { width: 280px; height: 280px; top: 42%; left: 46%; background: var(--blob-b); filter: blur(80px); animation: float1 30s ease-in-out infinite; }
+  @keyframes float1 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(40px,30px) scale(1.08); } }
+  @keyframes float2 { 0%,100% { transform: translate(0,0) scale(1); } 50% { transform: translate(-36px,-28px) scale(1.06); } }
+
+  .glass {
+    background: var(--surface);
+    backdrop-filter: blur(var(--blur)) saturate(1.5);
+    -webkit-backdrop-filter: blur(var(--blur)) saturate(1.5);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--shadow);
   }
-  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
-  header .spacer { flex: 1; }
-  .pill {
-    font-size: 12px; padding: 2px 10px; border-radius: 999px;
-    border: 1px solid var(--border); color: var(--muted);
-  }
-  .pill.live { color: var(--green); border-color: var(--green); }
-  .pill.dead { color: var(--red); border-color: var(--red); }
+
+  /* Buttons */
   button {
-    background: #21262d; color: var(--text); border: 1px solid var(--border);
-    padding: 6px 12px; border-radius: 6px; cursor: pointer; font: inherit;
+    background: var(--surface-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    padding: 7px 13px; border-radius: 10px; cursor: pointer;
+    font: inherit; font-weight: 500;
+    backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
+    transition: transform .12s ease, border-color .15s ease, box-shadow .15s ease, opacity .15s;
   }
-  button:hover { border-color: var(--accent); }
-  button.primary { background: var(--accent); color: #0d1117; border-color: var(--accent); font-weight: 600; }
-  main { padding: 20px; max-width: 1100px; margin: 0 auto; }
+  button:hover { border-color: var(--accent); transform: translateY(-1px); }
+  button:active { transform: translateY(0); }
+  button:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+  button.primary {
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    color: var(--on-accent); border: none; font-weight: 600;
+    box-shadow: 0 6px 18px -4px color-mix(in srgb, var(--accent) 60%, transparent);
+  }
+  button.primary:hover { filter: brightness(1.07); }
+  button.danger { border-color: color-mix(in srgb, var(--red) 55%, transparent); color: var(--red); }
+  button.danger:hover { background: var(--red); color: #fff; border-color: var(--red); }
+  .icon-btn { width: 36px; height: 36px; padding: 0; display: inline-flex; align-items: center; justify-content: center; font-size: 16px; border-radius: 10px; }
+
+  /* Header */
+  header {
+    display: flex; align-items: center; gap: 14px;
+    padding: 10px 18px; margin: 16px auto 0; max-width: 1140px; width: calc(100% - 32px);
+    position: sticky; top: 16px; z-index: 20;
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 700; letter-spacing: .2px; }
+  .brand { background: linear-gradient(135deg, var(--accent), var(--accent-2)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+  header .spacer { flex: 1; }
+  .pill { font-size: 12px; padding: 3px 11px; border-radius: 999px; border: 1px solid var(--border); color: var(--muted); background: var(--surface-2); }
+  .pill.live { color: var(--green); border-color: color-mix(in srgb, var(--green) 50%, transparent); }
+  .pill.dead { color: var(--red); border-color: color-mix(in srgb, var(--red) 50%, transparent); }
+
+  main { padding: 20px; max-width: 1140px; margin: 0 auto; }
   .tabs { display: flex; gap: 8px; margin-bottom: 16px; }
-  .tabs button.active { border-color: var(--accent); color: var(--accent); }
+  .tabs button.active { border-color: transparent; background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: var(--on-accent); }
+
+  .card { padding: 16px 18px; }
   table { width: 100%; border-collapse: collapse; }
-  th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
-  th { color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; }
-  tr.svc { cursor: pointer; }
-  tr.svc:hover td { background: #1c2128; }
-  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
-  .healthy { background: var(--green); } .unhealthy { background: var(--red); }
-  .starting { background: var(--amber); } .none { background: var(--gray); }
-  .tag { font-size: 11px; padding: 1px 7px; border-radius: 4px; background: #21262d; border: 1px solid var(--border); color: var(--muted); }
+  th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: .4px; }
+  tbody tr:last-child td { border-bottom: none; }
+  tr.svc { cursor: pointer; transition: background .12s; }
+  tr.svc:hover td { background: var(--surface-2); }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 6px; vertical-align: middle; box-shadow: 0 0 8px currentColor; }
+  .healthy { background: var(--green); color: var(--green); }
+  .unhealthy { background: var(--red); color: var(--red); }
+  .starting { background: var(--amber); color: var(--amber); }
+  .none { background: var(--gray); color: transparent; }
+  .tag { font-size: 11px; padding: 2px 9px; border-radius: 999px; background: var(--surface-2); border: 1px solid var(--border); color: var(--muted); }
   .muted { color: var(--muted); }
-  .gate { max-width: 380px; margin: 80px auto; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 28px; }
-  .gate h2 { margin-top: 0; }
-  .gate input { width: 100%; padding: 9px; margin: 6px 0 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font: inherit; }
   .err { color: var(--red); min-height: 18px; font-size: 13px; }
   .hidden { display: none; }
-  #detail { margin-top: 20px; background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 18px; }
-  #detail h3 { margin: 0 0 10px; }
-  pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 12px; overflow: auto; max-height: 360px; white-space: pre-wrap; word-break: break-word; font-size: 12px; }
-  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+  .grouphdr td { background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent); font-weight: 700; text-transform: uppercase; font-size: 11px; letter-spacing: .5px; }
+
+  /* Gate */
+  .gate { max-width: 400px; margin: 12vh auto; padding: 32px; }
+  .gate h2 { margin-top: 0; font-size: 20px; }
+  .gate input {
+    width: 100%; padding: 11px 12px; margin: 6px 0 12px;
+    background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+    color: var(--text); font: inherit;
+  }
+  .gate input:focus { outline: none; border-color: var(--accent); }
+
+  /* Detail + env */
+  #detail { margin-top: 18px; padding: 18px; }
+  #detail h3 { margin: 0; }
+  pre { background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px; overflow: auto; max-height: 360px; white-space: pre-wrap; word-break: break-word; font-size: 12px; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 12px; }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 14px 0; }
   details summary { cursor: pointer; color: var(--accent); margin: 10px 0; }
-  .grouphdr td { background: #10151c; color: var(--accent); font-weight: 600; text-transform: uppercase; font-size: 11px; }
-  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0; }
-  button.danger { border-color: var(--red); color: var(--red); }
-  button.danger:hover { background: var(--red); color: #0d1117; }
-  textarea { width: 100%; height: 340px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 6px; padding: 10px; font: inherit; }
-  #modal { position: fixed; inset: 0; background: rgba(0,0,0,.6); align-items: center; justify-content: center; display: none; }
+  textarea { width: 100%; height: 340px; background: var(--surface-2); color: var(--text); border: 1px solid var(--border); border-radius: 10px; padding: 12px; font: 13px/1.5 ui-monospace, Menlo, Consolas, monospace; }
+  textarea:focus { outline: none; border-color: var(--accent); }
+
+  /* Modal */
+  #modal { position: fixed; inset: 0; background: rgba(10, 6, 24, 0.45); align-items: center; justify-content: center; display: none; z-index: 50; backdrop-filter: blur(6px); }
   #modal.show { display: flex; }
-  #modal .box { background: var(--panel); border: 1px solid var(--border); border-radius: 10px; padding: 24px; max-width: 460px; }
+  #modal .box { padding: 26px; max-width: 460px; margin: 16px; }
   #modal h3 { margin: 0 0 10px; }
 </style>
 </head>
 <body>
 
+<div class="blobs"><div class="blob v"></div><div class="blob i"></div><div class="blob b"></div></div>
+
 <!-- Auth gate (setup or login) -->
-<div id="gate" class="gate hidden">
-  <h2 id="gate-title">⚓ Anchor</h2>
+<div id="gate" class="gate glass hidden">
+  <h2><span class="brand">⚓ Anchor</span></h2>
   <p id="gate-sub" class="muted"></p>
   <input id="pw" type="password" placeholder="Password" autocomplete="off" />
   <input id="pw2" type="password" placeholder="Confirm password" autocomplete="off" class="hidden" />
   <div id="gate-err" class="err"></div>
   <button id="gate-btn" class="primary" style="width:100%">Continue</button>
+  <input type="hidden" id="gate-title" />
 </div>
 
 <!-- App -->
 <div id="app" class="hidden">
-  <header>
-    <h1>⚓ Anchor</h1>
-    <span class="muted">Nucleus infrastructure control plane</span>
+  <header class="glass">
+    <h1><span class="brand">⚓ Anchor</span></h1>
+    <span class="muted" style="font-size:12px">Nucleus control plane</span>
     <span class="spacer"></span>
     <span id="conn" class="pill">connecting…</span>
+    <button id="theme" class="icon-btn" title="Toggle theme">🌙</button>
     <button id="logout">Log out</button>
   </header>
   <main>
@@ -98,23 +193,27 @@
     <div id="services-view">
       <div class="row">
         <strong id="svc-count">0 services</strong>
-        <span class="muted">— read-only (lifecycle actions arrive in Phase 3)</span>
+        <span class="muted">— read-only + lifecycle</span>
         <span class="spacer"></span>
         <button id="refresh">Refresh</button>
       </div>
-      <table>
-        <thead><tr><th>Name</th><th>App</th><th>Role</th><th>State</th><th>Health</th><th>Status</th></tr></thead>
-        <tbody id="svc-body"></tbody>
-      </table>
-      <div id="detail" class="hidden"></div>
+      <div class="glass card">
+        <table>
+          <thead><tr><th>Name</th><th>App</th><th>Role</th><th>State</th><th>Health</th><th>Status</th></tr></thead>
+          <tbody id="svc-body"></tbody>
+        </table>
+      </div>
+      <div id="detail" class="glass hidden"></div>
     </div>
 
     <div id="audit-view" class="hidden">
       <div class="row"><strong>Audit log</strong><span class="muted">— append-only, newest first</span><span class="spacer"></span><button id="refresh-audit">Refresh</button></div>
-      <table>
-        <thead><tr><th>Time (UTC)</th><th>Event</th><th>Target</th><th>Detail</th><th>IP</th></tr></thead>
-        <tbody id="audit-body"></tbody>
-      </table>
+      <div class="glass card">
+        <table>
+          <thead><tr><th>Time (UTC)</th><th>Event</th><th>Target</th><th>Detail</th><th>IP</th></tr></thead>
+          <tbody id="audit-body"></tbody>
+        </table>
+      </div>
     </div>
 
     <div id="env-view" class="hidden">
@@ -134,7 +233,7 @@
 
 <!-- Confirmation modal for destructive actions -->
 <div id="modal">
-  <div class="box">
+  <div class="box glass">
     <h3 id="modal-title">Confirm</h3>
     <p id="modal-impact" class="muted"></p>
     <div class="row" style="justify-content:flex-end;margin:0">

@@ -172,6 +172,31 @@
   #modal.show { display: flex; }
   #modal .box { padding: 26px; max-width: 460px; margin: 16px; }
   #modal h3 { margin: 0 0 10px; }
+
+  /* Backup restore: warning modal + progress overlay share the modal backdrop */
+  #restore-modal, #restore-loader { position: fixed; inset: 0; background: rgba(10, 6, 24, 0.45); align-items: center; justify-content: center; display: none; z-index: 55; backdrop-filter: blur(6px); }
+  #restore-modal.show, #restore-loader.show { display: flex; }
+  #restore-modal .box, #restore-loader .box { padding: 26px; max-width: 480px; margin: 16px; }
+  #restore-modal h3, #restore-loader h3 { margin: 0 0 10px; }
+
+  /* Indeterminate progress bar */
+  .bartrack { height: 7px; border-radius: 999px; background: rgba(127,127,127,0.22); overflow: hidden; margin: 16px 0; }
+  .bartrack.sm { height: 5px; margin: 8px 0 0; }
+  .bar { height: 100%; border-radius: inherit; background: linear-gradient(135deg, var(--accent), var(--accent-2)); }
+  .bar.indeterminate { width: 40%; animation: barslide 1.15s ease-in-out infinite; }
+  .bar.done { width: 100%; animation: none; }
+  .bar.err  { width: 100%; animation: none; background: #e5484d; }
+  @keyframes barslide { 0% { margin-left: -42%; } 100% { margin-left: 100%; } }
+
+  /* Spinner */
+  .spinner { width: 22px; height: 22px; border-radius: 50%; border: 3px solid rgba(127,127,127,0.3); border-top-color: var(--accent); animation: spin .8s linear infinite; display: inline-block; flex: 0 0 auto; }
+  .spinner.sm { width: 14px; height: 14px; border-width: 2px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* Minimized corner indicator */
+  #restore-mini { position: fixed; right: 18px; bottom: 18px; width: 290px; padding: 12px 14px; z-index: 60; display: none; }
+  #restore-mini.show { display: block; }
+  #restore-mini .mini-row { display: flex; align-items: center; gap: 9px; font-size: 13px; }
 </style>
 </head>
 <body>
@@ -209,6 +234,7 @@
       <button id="tab-services" class="active">Services</button>
       <button id="tab-audit">Audit log</button>
       <button id="tab-env">.env</button>
+      <button id="tab-backups">Backups</button>
     </div>
 
     <div id="services-view">
@@ -249,6 +275,28 @@
       <textarea id="env-text" spellcheck="false"></textarea>
       <div id="env-msg" class="muted" style="margin-top:8px"></div>
     </div>
+
+    <div id="backups-view" class="hidden">
+      <div class="row">
+        <strong>Backups</strong><span class="muted">— newest first</span>
+        <span class="spacer"></span>
+        <select id="backup-target" title="What to include in the new backup" style="padding:6px 8px">
+          <option value="both">MinIO + Mongo</option>
+          <option value="minio">MinIO only</option>
+          <option value="mongo">Mongo only</option>
+        </select>
+        <button id="create-backup" class="primary">Create backup</button>
+        <button id="refresh-backups">Refresh</button>
+      </div>
+      <p class="muted">Automated daily backups of the MinIO object store + database (kept for 3 days). Restoring rolls back Orbit's files and their records together; other apps are untouched. <span id="backups-dir"></span></p>
+      <div class="glass card">
+        <table>
+          <thead><tr><th>Backup</th><th>Size</th><th>Created (UTC)</th><th style="text-align:right">Actions</th></tr></thead>
+          <tbody id="backups-body"></tbody>
+        </table>
+      </div>
+      <div id="backups-msg" class="muted" style="margin-top:8px"></div>
+    </div>
   </main>
 </div>
 
@@ -262,6 +310,44 @@
       <button id="modal-ok" class="danger">Confirm</button>
     </div>
   </div>
+</div>
+
+<!-- Backup restore: two-step warning modal -->
+<div id="restore-modal">
+  <div class="box glass">
+    <h3 id="restore-step">Restore backup</h3>
+    <p id="restore-impact" class="muted"></p>
+    <input id="restore-pw" type="password" class="search hidden" placeholder="Anchor password" autocomplete="current-password" style="width:100%;box-sizing:border-box;margin:4px 0 2px" />
+    <p id="restore-pw-err" class="err hidden" style="margin:4px 0 0"></p>
+    <div class="row" style="justify-content:flex-end;margin:12px 0 0">
+      <button id="restore-back">Cancel</button>
+      <button id="restore-next" class="danger">Continue</button>
+    </div>
+  </div>
+</div>
+
+<!-- Restore progress: full overlay, dismissable to a corner bar -->
+<div id="restore-loader">
+  <div class="box glass">
+    <div class="row" style="margin:0 0 4px"><span class="spinner"></span><h3 id="restore-loader-title" style="margin:0">Restoring backup…</h3></div>
+    <p id="restore-loader-name" class="muted" style="margin:0 0 2px"></p>
+    <p id="restore-loader-phase" class="muted" style="margin:0"></p>
+    <div class="bartrack"><div id="restore-loader-bar" class="bar indeterminate"></div></div>
+    <div class="row" style="justify-content:flex-end;margin:0">
+      <button id="restore-dismiss">Run in background</button>
+    </div>
+  </div>
+</div>
+
+<!-- Minimized restore indicator (bottom-right) -->
+<div id="restore-mini" class="glass">
+  <div class="mini-row">
+    <span id="restore-mini-spin" class="spinner sm"></span>
+    <span id="restore-mini-text">Restoring…</span>
+    <span class="spacer"></span>
+    <button id="restore-mini-open" class="mini">Open</button>
+  </div>
+  <div class="bartrack sm"><div id="restore-mini-bar" class="bar indeterminate"></div></div>
 </div>
 
 <script src="app.js"></script>

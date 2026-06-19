@@ -27,11 +27,28 @@ services:
       # own labels — Anchor just needs the repo mounted at its host path (below).
       # NUCLEUS_ENV points the .env editor at the central env file.
       NUCLEUS_ENV: ${NUCLEUS_REPO:-/opt/nucleus-not-mounted}/infra/.env
+      # Where Anchor reads backup bundles (read-only bind mount below).
+      ANCHOR_BACKUP_DIR: /backups
+      # The SAME directory as the host sees it — the mongorestore helper container
+      # bind-mounts this (a sibling's mount source resolves on the host).
+      ANCHOR_BACKUP_HOST_DIR: ${ANCHOR_BACKUP_HOST_DIR:-/home/debian/backups/minio}
+      # Where the MinIO data volume is mounted for restore (rw bind mount below).
+      ANCHOR_RESTORE_TARGET: /restore/minio
+      # MinIO volume NAME — the on-demand backup helper mounts it by name.
+      ANCHOR_MINIO_VOLUME: ${ANCHOR_MINIO_VOLUME:-nucleus_minio_data}
       # ANCHOR_SECURE: "1"     # enable when served over HTTPS (Tailscale)
     volumes:
       - anchor_data:/data      # config (0600) + audit.jsonl; survives recreate
       # Nucleus repo mounted at its own absolute path (see header).
       - ${NUCLEUS_REPO:-/opt/nucleus-not-mounted}:${NUCLEUS_REPO:-/opt/nucleus-not-mounted}
+      # Backup bundles, read-WRITE: Anchor lists + restores from here and also
+      # creates new bundles on demand. Host path is set per-environment via
+      # ANCHOR_BACKUP_HOST_DIR (prod: /home/debian/backups/minio).
+      - ${ANCHOR_BACKUP_HOST_DIR:-/home/debian/backups/minio}:/backups
+      # The live MinIO data volume, read-WRITE — only touched during a restore
+      # (stop MinIO → wipe + re-extract → start). External: owned by the nucleus
+      # project. Name overridable via ANCHOR_MINIO_VOLUME.
+      - minio_data:/restore/minio
     depends_on:
       - docker-socket-proxy
     deploy:
@@ -67,3 +84,8 @@ services:
 
 volumes:
   anchor_data:
+  # The nucleus project's MinIO volume, referenced (not created) so Anchor can
+  # restore into it. Defaults to nucleus_minio_data; override per environment.
+  minio_data:
+    external: true
+    name: ${ANCHOR_MINIO_VOLUME:-nucleus_minio_data}

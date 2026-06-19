@@ -97,6 +97,7 @@ function showApp() {
   $('pw').value = ''; if ($('pw2')) $('pw2').value = '';
   loadServices();
   connectSSE();
+  resumeJob();
 }
 
 $('logout').addEventListener('click', async () => {
@@ -108,21 +109,24 @@ $('logout').addEventListener('click', async () => {
 $('tab-services').addEventListener('click', () => switchTab('services'));
 $('tab-audit').addEventListener('click', () => switchTab('audit'));
 $('tab-env').addEventListener('click', () => switchTab('env'));
+$('tab-backups').addEventListener('click', () => switchTab('backups'));
 $('refresh').addEventListener('click', loadServices);
 $('svc-search').addEventListener('input', renderServices);
 $('refresh-audit').addEventListener('click', loadAudit);
 $('env-reload').addEventListener('click', loadEnv);
 $('env-reveal').addEventListener('click', revealEnv);
 $('env-save').addEventListener('click', saveEnv);
+$('refresh-backups').addEventListener('click', loadBackups);
 
 function switchTab(name) {
-  for (const t of ['services', 'audit', 'env']) {
+  for (const t of ['services', 'audit', 'env', 'backups']) {
     $('tab-' + t).classList.toggle('active', t === name);
     $(t + '-view').classList.toggle('hidden', t !== name);
   }
   if (name === 'services') loadServices();
   if (name === 'audit') loadAudit();
   if (name === 'env') loadEnv();
+  if (name === 'backups') loadBackups();
 }
 
 const HEALTH_LABEL = { healthy: 'healthy', unhealthy: 'unhealthy', starting: 'starting', none: '—' };
@@ -277,6 +281,241 @@ async function loadAudit() {
     body.appendChild(tr);
   }
 }
+
+// ── Backups ───────────────────────────────────────────────────────────────────
+
+function fmtBytes(b) {
+  if (b == null) return '—';
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  let n = b, i = 0;
+  while (n >= 1024 && i < units.length - 1) { n /= 1024; i++; }
+  return `${i === 0 ? n : n.toFixed(n >= 100 ? 0 : 1)} ${units[i]}`;
+}
+
+function fmtDateTime(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  return isNaN(d.getTime()) ? esc(iso) : d.toLocaleString();
+}
+
+async function loadBackups() {
+  const r = await api('/api/anchor/backups');
+  const body = $('backups-body');
+  $('backups-msg').textContent = '';
+  body.innerHTML = '';
+  if (!r.ok) {
+    body.innerHTML = `<tr><td colspan="4" class="err">${esc((r.body && r.body.error) || 'failed to load')}</td></tr>`;
+    return;
+  }
+  $('backups-dir').textContent = r.body.dir ? `Source: ${r.body.dir}` : '';
+  const list = (r.body && r.body.backups) || [];
+  if (!list.length) {
+    body.innerHTML = '<tr><td colspan="4" class="muted">no backups yet</td></tr>';
+    return;
+  }
+  for (const b of list) {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      `<td>${esc(b.name)}${b.hasMongo ? ' <span class="tag">MinIO + DB</span>' : ' <span class="tag">MinIO only</span>'}</td>` +
+      `<td>${fmtBytes(b.size)}</td>` +
+      `<td class="muted">${fmtDateTime(b.modified)}</td>` +
+      `<td class="actcell" style="text-align:right"><button class="mini">Restore</button></td>`;
+    tr.querySelector('button').addEventListener('click', () => restoreFlow(b.name));
+    body.appendChild(tr);
+  }
+}
+
+// ── Backup create + restore (single-flight job; corner bar / loader UI) ───────
+
+let jobPoll = null;
+
+// One warning screen; resolves true to advance, false to cancel. `final` styles
+// it as the irreversible last step.
+function showRestoreWarn({ name, impact, final }) {
+  return new Promise((resolve) => {
+    $('restore-pw').classList.add('hidden');
+    $('restore-pw-err').classList.add('hidden');
+    $('restore-step').textContent = final
+      ? 'Restore backup — step 2 of 2: final confirmation'
+      : 'Restore backup — step 1 of 2';
+    $('restore-impact').innerHTML = final
+      ? `You are about to replace all MinIO data with <strong>${esc(name)}</strong>. ` +
+        `This is <strong>irreversible</strong>. Proceed only if you are sure.`
+      : esc(impact || 'This will overwrite current data.');
+    $('restore-next').textContent = 'Continue';
+    $('restore-back').textContent = final ? 'Go back' : 'Cancel';
+    $('restore-modal').classList.add('show');
+    const done = (val) => {
+      $('restore-modal').classList.remove('show');
+      $('restore-next').onclick = null;
+      $('restore-back').onclick = null;
+      resolve(val);
+    };
+    $('restore-next').onclick = () => done(true);
+    $('restore-back').onclick = () => done(false);
+  });
+}
+
+// Final auth step: re-enter the Anchor password. Resolves to the typed password,
+// or null if cancelled. `errMsg` re-prompts after a wrong password.
+function askRestorePassword(name, errMsg) {
+  return new Promise((resolve) => {
+    $('restore-step').textContent = 'Authorize restore';
+    $('restore-impact').innerHTML = `Re-enter your Anchor password to restore <strong>${esc(name)}</strong>.`;
+    const pw = $('restore-pw');
+    pw.classList.remove('hidden'); pw.value = '';
+    const err = $('restore-pw-err');
+    if (errMsg) { err.textContent = errMsg; err.classList.remove('hidden'); } else { err.classList.add('hidden'); }
+    $('restore-next').textContent = 'Restore now';
+    $('restore-back').textContent = 'Cancel';
+    $('restore-modal').classList.add('show');
+    pw.focus();
+    const done = (val) => {
+      $('restore-modal').classList.remove('show');
+      pw.classList.add('hidden'); err.classList.add('hidden');
+      $('restore-next').onclick = null; $('restore-back').onclick = null; pw.onkeydown = null;
+      resolve(val);
+    };
+    $('restore-next').onclick = () => done(pw.value);
+    $('restore-back').onclick = () => done(null);
+    pw.onkeydown = (e) => { if (e.key === 'Enter') done(pw.value); };
+  });
+}
+
+async function restoreFlow(name) {
+  const reqRestore = (extra) =>
+    api(`/api/anchor/backups/${encodeURIComponent(name)}/restore`,
+      { method: 'POST', body: JSON.stringify(extra || {}) });
+
+  // Step 0 — ask the server for a confirm token + impact summary.
+  let r = await reqRestore({});
+  if (r.status === 409) { $('backups-msg').textContent = 'A restore is already running.'; return resumeJob(); }
+  if (!(r.status === 428 && r.body && r.body.needsConfirm)) {
+    $('backups-msg').textContent = (r.body && r.body.error) || 'Could not start restore.';
+    return;
+  }
+  const token = r.body.confirmToken, impact = r.body.impact;
+
+  // Two-step warning. Both screens are client-side; the token is spent on execute.
+  if (!await showRestoreWarn({ name, impact, final: false })) return;
+  if (!await showRestoreWarn({ name, impact, final: true })) return;
+
+  // Final gate: re-enter the Anchor password. The server verifies it before
+  // consuming the token, so a wrong password lets us retry with the same token.
+  let exec, err = '';
+  for (;;) {
+    const pw = await askRestorePassword(name, err);
+    if (pw === null) return;                       // cancelled
+    exec = await reqRestore({ confirmToken: token, password: pw });
+    if (exec.status === 401) { err = 'Incorrect password — try again.'; continue; }
+    if (exec.status === 429) { err = (exec.body && exec.body.error) || 'Too many attempts.'; continue; }
+    break;
+  }
+  if (!(exec.ok || exec.status === 202)) {
+    $('backups-msg').textContent = (exec.body && (exec.body.error || exec.body.impact)) || 'Restore failed to start.';
+    return;
+  }
+  openRestoreLoader(name);
+  pollJob();
+}
+
+// Loader overlay (full screen, restore only). Dismiss collapses it to the corner
+// bar; both stay in sync via pollJob().
+function openRestoreLoader(name) {
+  $('restore-mini').classList.remove('show');
+  $('restore-loader-title').textContent = 'Restoring backup…';
+  $('restore-loader-name').textContent = name;
+  $('restore-loader-phase').textContent = 'starting…';
+  $('restore-loader-bar').className = 'bar indeterminate';
+  $('restore-loader').classList.add('show');
+}
+
+function minimizeRestore() {
+  $('restore-loader').classList.remove('show');
+  $('restore-mini').classList.add('show');
+}
+
+$('restore-dismiss').addEventListener('click', minimizeRestore);
+$('restore-mini-open').addEventListener('click', () => {
+  $('restore-mini').classList.remove('show');
+  $('restore-loader').classList.add('show');
+});
+
+// Render job state (backup OR restore) into the overlay + corner bar.
+function applyJobState(st) {
+  const isBackup = st.kind === 'backup';
+  const verb = isBackup ? 'Backup' : 'Restore';
+  const gerund = isBackup ? 'Backing up' : 'Restoring';
+  // Full overlay (restore only — backups use just the corner bar)
+  $('restore-loader-name').textContent = st.target || '';
+  $('restore-loader-phase').textContent = st.error || st.phase || '';
+  // Corner bar
+  $('restore-mini-text').textContent = st.error ? `${verb} failed`
+    : st.done ? `${verb} complete` : `${gerund}… ${st.phase || ''}`;
+  // Reopening the full overlay only makes sense for a restore.
+  $('restore-mini-open').style.display = isBackup ? 'none' : '';
+
+  if (st.done) {
+    const cls = st.error ? 'bar err' : 'bar done';
+    $('restore-loader-bar').className = cls;
+    $('restore-mini-bar').className = cls + ' sm';
+    $('restore-mini-spin').style.display = 'none';
+    $('restore-loader-title').textContent = st.error ? `${verb} failed` : `${verb} complete`;
+  } else {
+    $('restore-loader-bar').className = 'bar indeterminate';
+    $('restore-mini-bar').className = 'bar indeterminate sm';
+    $('restore-mini-spin').style.display = '';
+  }
+}
+
+function pollJob() {
+  if (jobPoll) clearInterval(jobPoll);
+  const tick = async () => {
+    const r = await api('/api/anchor/backups/status');
+    if (!r.ok) return;
+    applyJobState(r.body);
+    if (r.body.done) {
+      clearInterval(jobPoll); jobPoll = null;
+      loadBackups();
+      // Let the result linger, then clear the indicators.
+      setTimeout(() => {
+        $('restore-mini').classList.remove('show');
+        $('restore-loader').classList.remove('show');
+      }, 6000);
+    }
+  };
+  tick();
+  jobPoll = setInterval(tick, 1000);
+}
+
+// On (re)load, if a backup/restore is mid-flight, resurface the corner bar.
+async function resumeJob() {
+  const r = await api('/api/anchor/backups/status');
+  if (r.ok && r.body && r.body.running) {
+    $('restore-mini').classList.add('show');
+    applyJobState(r.body);
+    pollJob();
+  }
+}
+
+// Create a backup on demand (MinIO / Mongo / both). Non-destructive, so no
+// confirm — progress shows in the corner bar.
+async function createBackup() {
+  const sel = $('backup-target').value;                  // both | minio | mongo
+  const r = await api('/api/anchor/backups/create', {
+    method: 'POST',
+    body: JSON.stringify({ minio: sel !== 'mongo', mongo: sel !== 'minio' }),
+  });
+  if (r.status === 409) { $('backups-msg').textContent = 'A backup or restore is already running.'; return resumeJob(); }
+  if (!(r.ok || r.status === 202)) {
+    $('backups-msg').textContent = (r.body && r.body.error) || 'Could not start backup.';
+    return;
+  }
+  $('backups-msg').textContent = '';
+  $('restore-mini').classList.add('show');
+  pollJob();
+}
+$('create-backup').addEventListener('click', createBackup);
 
 async function loadEnv() {
   const r = await api('/api/anchor/env');

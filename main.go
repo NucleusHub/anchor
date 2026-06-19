@@ -22,6 +22,7 @@ type Server struct {
 	env      *EnvFile
 	confirm  *ConfirmStore
 	limiter  *RateLimiter
+	job      *Job // single-flight backup OR restore
 	secure   bool // set ANCHOR_SECURE=1 when served over HTTPS (Tailscale)
 }
 
@@ -58,6 +59,7 @@ func main() {
 		env:      NewEnvFile(),
 		confirm:  NewConfirmStore(),
 		limiter:  &RateLimiter{},
+		job:      NewJob(),
 		secure:   os.Getenv("ANCHOR_SECURE") == "1",
 	}
 
@@ -84,6 +86,10 @@ func main() {
 	mux.HandleFunc("POST /api/anchor/services/{id}/rebuild", srv.requireAuth(srv.handleRebuild))
 	mux.HandleFunc("GET /api/anchor/env", srv.requireAuth(srv.handleEnvGet))
 	mux.HandleFunc("PUT /api/anchor/env", srv.requireAuth(srv.handleEnvPut))
+	mux.HandleFunc("GET /api/anchor/backups", srv.requireAuth(srv.handleBackups))
+	mux.HandleFunc("GET /api/anchor/backups/status", srv.requireAuth(srv.handleJobStatus))
+	mux.HandleFunc("POST /api/anchor/backups/create", srv.requireAuth(srv.handleBackupCreate))
+	mux.HandleFunc("POST /api/anchor/backups/{name}/restore", srv.requireAuth(srv.handleRestore))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte("ok"))
 	})
